@@ -20,7 +20,7 @@ from tkinter import scrolledtext, ttk
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.agent import build_agent_graph
+from src.agent import build_agent_graph, format_detected_intent
 from src.rag_engine import query_knowledge_base
 from src.state import AgentState
 
@@ -172,6 +172,7 @@ class AutoStreamGUI:
             "user_platform": None,
             "lead_captured": False,
             "intent": None,
+            "intent_source": None,
         }
 
         self._event_queue: queue.Queue[tuple[str, str]] = queue.Queue()
@@ -438,13 +439,14 @@ class AutoStreamGUI:
         try:
             result = cast(AgentState, self.agent.invoke(self.state))
             self.state = result
+            intent_label = format_detected_intent(result.get("intent"), result.get("intent_source"))
 
             ai_messages = [
                 m for m in result.get("messages", [])
                 if hasattr(m, "content") and getattr(m, "type", "") == "ai"
             ]
             if ai_messages:
-                reply = str(ai_messages[-1].content)
+                reply = f"Detected intent: {intent_label}\n\n{ai_messages[-1].content}"
             else:
                 reply = "No response generated. Please try again."
 

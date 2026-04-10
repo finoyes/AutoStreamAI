@@ -23,6 +23,7 @@ class AgentState(TypedDict):
         user_platform: The creator platform (YouTube, TikTok, etc.).
         lead_captured: Flag indicating whether mock_lead_capture has fired.
         intent: The last classified intent (greeting / info / signup).
+        intent_source: How intent was detected (rule_based / llm / lead_progress).
     """
 
     messages: Annotated[Sequence[BaseMessage], add_messages]
@@ -31,3 +32,4 @@ class AgentState(TypedDict):
     user_platform: Optional[str]
     lead_captured: bool
     intent: Optional[str]
+    intent_source: Optional[str]

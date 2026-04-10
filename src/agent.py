@@ -242,6 +242,28 @@ def _fast_intent_from_text(user_text: str) -> str | None:
     return None
 
 
+def format_detected_intent(intent: str | None, source: str | None = None) -> str:
+    """Return a human-friendly label for the detected intent."""
+    if not intent:
+        return "Unknown"
+
+    label_map = {
+        "greeting": "Greeting",
+        "info": "Information Request",
+        "signup": "Signup Intent",
+    }
+    source_map = {
+        "rule_based": "rule-based",
+        "llm": "LLM",
+        "lead_progress": "lead-progress",
+    }
+
+    label = label_map.get(intent, intent.title())
+    if source:
+        return f"{label} ({source_map.get(source, source)})"
+    return label
+
+
 def _lead_in_progress(state: AgentState) -> bool:
     """Return True when signup has started but lead capture is not complete yet."""
     if state.get("lead_captured"):
@@ -297,11 +319,11 @@ def classify_intent(state: AgentState) -> dict:
     """
     # Keep lead capture sticky once signup has begun.
     if _lead_in_progress(state):
-        return {"intent": "signup"}
+        return {"intent": "signup", "intent_source": "lead_progress"}
 
     fast_intent = _fast_intent_from_text(_last_user_text(state))
     if fast_intent:
-        return {"intent": fast_intent}
+        return {"intent": fast_intent, "intent_source": "rule_based"}
 
     classification_prompt = [
         SystemMessage(
@@ -329,7 +351,7 @@ def classify_intent(state: AgentState) -> dict:
     else:
         intent = "greeting"
 
-    return {"intent": intent}
+    return {"intent": intent, "intent_source": "llm"}
 
 
 def respond_info(state: AgentState) -> dict:

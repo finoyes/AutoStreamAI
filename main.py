@@ -12,7 +12,7 @@ import re
 from typing import cast
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from langchain_core.messages import AIMessage, HumanMessage
-from src.agent import build_agent_graph
+from src.agent import build_agent_graph, format_detected_intent
 from src.rag_engine import query_knowledge_base
 from src.state import AgentState
 
@@ -147,6 +147,7 @@ def main():
         "user_platform": None,
         "lead_captured": False,
         "intent": None,
+        "intent_source": None,
     }
 
     while True:
@@ -193,10 +194,13 @@ def main():
         # Replace with returned state snapshot
         state = result
 
+        intent_badge = format_detected_intent(state.get("intent"), state.get("intent_source"))
+
         # Print the last AI message
         ai_messages = [m for m in result.get("messages", []) if hasattr(m, "content") and m.type == "ai"]
         if ai_messages:
             last_reply = ai_messages[-1].content
+            print(f"\n{DIM}Detected intent: {intent_badge}{RESET}")
             print(f"\n{CYAN}{BOLD}AutoStream ▶  {RESET}{last_reply}\n")
         else:
             # Fallback — shouldn't normally happen
