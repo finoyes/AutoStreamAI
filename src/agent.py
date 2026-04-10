@@ -76,6 +76,13 @@ _SIGNUP_MARKERS = (
     "i'd like to sign up",
     "help me sign up",
     "let me sign up",
+    "ready to sign up",
+    "i want to try",
+    "want to try",
+    "try the pro plan",
+    "try pro",
+    "i want the pro plan",
+    "i'll take the pro plan",
     "get started",
     "start a trial",
     "start trial",
@@ -96,8 +103,6 @@ _INFO_MARKERS = (
     "faq",
     "plan",
     "feature",
-    "sign up",
-    "signup",
     "trial",
 )
 
@@ -248,9 +253,9 @@ def format_detected_intent(intent: str | None, source: str | None = None) -> str
         return "Unknown"
 
     label_map = {
-        "greeting": "Greeting",
-        "info": "Information Request",
-        "signup": "Signup Intent",
+        "greeting": "Casual Greeting",
+        "info": "Product/Pricing Inquiry",
+        "signup": "High-Intent Lead",
     }
     source_map = {
         "rule_based": "rule-based",

@@ -1,60 +1,36 @@
 {
   "pricing": {
     "Basic": {
-      "price": "$29/mo",
+      "price": "$29/month",
       "limit": "10 videos/month",
       "resolution": "720p",
       "features": [
-        "Basic AI editing",
-        "Standard templates",
-        "Email support (business hours)"
+        "Basic plan access"
       ]
     },
     "Pro": {
-      "price": "$79/mo",
+      "price": "$79/month",
       "limit": "Unlimited videos",
       "resolution": "4K",
       "features": [
-        "Advanced AI editing",
-        "AI-generated captions & subtitles",
-        "Custom branding & watermarks",
-        "Priority rendering",
-        "24/7 priority support",
-        "Analytics dashboard"
-      ]
-    },
-    "Enterprise": {
-      "price": "Custom pricing",
-      "limit": "Unlimited videos",
-      "resolution": "4K+",
-      "features": [
-        "Everything in Pro",
-        "Dedicated account manager",
-        "Custom AI model training",
-        "API access",
-        "Team collaboration (up to 25 seats)",
-        "SLA guarantee (99.9% uptime)"
+        "AI captions"
       ]
     }
   },
   "policies": {
-    "refunds": "Full refund within the first 7 days of subscription. No refunds after the 7-day trial period. Downgrades take effect at the next billing cycle.",
-    "cancellation": "You can cancel your subscription at any time from the dashboard. Your access continues until the end of the current billing period.",
-    "support": "Basic plan: Email support during business hours (Mon-Fri, 9 AM - 6 PM EST). Pro plan: 24/7 priority support via chat and email. Enterprise plan: Dedicated account manager with phone support.",
-    "data_retention": "All uploaded videos and project files are retained for 90 days after account cancellation. You can request a full data export at any time.",
-    "free_trial": "All new users get a 7-day free trial of the Pro plan. No credit card required to start."
+    "refunds": "No refunds after 7 days.",
+    "support": "24/7 support is available only on the Pro plan."
   },
   "platforms_supported": [
     "YouTube",
+    "Instagram",
     "TikTok",
-    "Instagram Reels",
     "Facebook",
-    "Twitch",
-    "X (Twitter)"
+    "Twitch"
   ],
   "faq": {
-    "what_is_autostream": "AutoStream AI is an intelligent video editing platform that uses artificial intelligence to automate editing workflows for content creators. It handles cuts, transitions, captions, and publishing — so you can focus on creating.",
-    "how_does_ai_editing_work": "Upload your raw footage and AutoStream's AI analyzes it for key moments, removes dead air, adds transitions, generates captions, and optimizes the output for your target platform.",
-    "supported_formats": "AutoStream supports MP4, MOV, AVI, and MKV input formats. Output is optimized per platform (e.g., 9:16 for TikTok/Reels, 16:9 for YouTube)."
+    "what_is_autostream": "AutoStream is a SaaS product that provides automated video editing tools for content creators.",
+    "how_does_ai_editing_work": "Upload your raw footage and AutoStream AI helps automate cuts, transitions, and captions.",
+    "supported_formats": "AutoStream supports common creator video formats and exports optimized outputs for social platforms."
   }
 }

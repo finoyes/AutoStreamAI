@@ -23,13 +23,7 @@ def mock_lead_capture(name: str, email: str, platform: str) -> str:
     Returns:
         A confirmation string indicating the lead was captured successfully.
     """
-    print("\n" + "=" * 50)
-    print("  LEAD CAPTURED (mock)")
-    print("=" * 50)
-    print(f"  Name     : {name}")
-    print(f"  Email    : {email}")
-    print(f"  Platform : {platform}")
-    print("=" * 50 + "\n")
+    print(f"Lead captured successfully: {name}, {email}, {platform}")
 
     return (
         f"Lead successfully captured!\n"
