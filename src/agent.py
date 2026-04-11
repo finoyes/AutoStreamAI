@@ -15,9 +15,9 @@ from src.rag_engine import get_full_context, query_knowledge_base
 
 load_dotenv()
 
-# ---------------------------------------------------------------------------
+
 # LLM setup
-# ---------------------------------------------------------------------------
+
 _GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 _REQUESTED_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash").strip() or "gemini-1.5-flash"
 _MODEL_ALIASES = {
@@ -148,9 +148,9 @@ def _invoke_with_model_failover(messages: list[Any], temperature: float) -> Any:
     raise RuntimeError("No Gemini model candidates configured")
 
 
-# ---------------------------------------------------------------------------
+
 # System prompt (injected with RAG context)
-# ---------------------------------------------------------------------------
+
 _SYSTEM_PROMPT = """You are the **AutoStream AI Assistant**. Your goal is to help creators automate their video editing.
 
 ## Guidelines
@@ -312,9 +312,9 @@ def _extract_name(text: str) -> str | None:
     return None
 
 
-# ---------------------------------------------------------------------------
+
 # Graph Nodes
-# ---------------------------------------------------------------------------
+
 
 def classify_intent(state: AgentState) -> dict:
     """
@@ -430,9 +430,9 @@ def call_tool(state: AgentState) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
+
 # Router functions (conditional edges)
-# ---------------------------------------------------------------------------
+
 
 def route_after_classify(state: AgentState) -> str:
     intent = state.get("intent", "greeting")
@@ -449,9 +449,8 @@ def route_after_collect(state: AgentState) -> str:
     return END
 
 
-# ---------------------------------------------------------------------------
 # Build the Graph
-# ---------------------------------------------------------------------------
+
 
 def build_agent_graph():
     """Construct and compile the LangGraph state machine."""
