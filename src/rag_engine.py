@@ -34,35 +34,35 @@ def get_full_context() -> str:
     For a small KB like this, injecting the whole thing into the system
     prompt is simpler and more reliable than keyword retrieval.
     """
-    kb = _load_kb()
+    knowledge_dictionary = _load_kb()
     sections: list[str] = []
 
     # --- Pricing ---
     sections.append("## Pricing Plans\n")
-    for plan_name, details in kb.get("pricing", {}).items():
-        features = ", ".join(details.get("features", []))
+    for plan_name, plan_specifications in knowledge_dictionary.get("pricing", {}).items():
+        features = ", ".join(plan_specifications.get("features", []))
         sections.append(
-            f"**{plan_name}** — {details['price']}\n"
-            f"  - Video limit: {details.get('limit', 'N/A')}\n"
-            f"  - Max resolution: {details.get('resolution', 'N/A')}\n"
+            f"**{plan_name}** — {plan_specifications['price']}\n"
+            f"  - Video limit: {plan_specifications.get('limit', 'N/A')}\n"
+            f"  - Max resolution: {plan_specifications.get('resolution', 'N/A')}\n"
             f"  - Features: {features}\n"
         )
 
     # --- Policies ---
     sections.append("\n## Policies\n")
-    for policy_key, policy_text in kb.get("policies", {}).items():
+    for policy_key, policy_text in knowledge_dictionary.get("policies", {}).items():
         nice_key = policy_key.replace("_", " ").title()
         sections.append(f"**{nice_key}:** {policy_text}\n")
 
     # --- Supported Platforms ---
-    platforms = kb.get("platforms_supported", [])
+    platforms = knowledge_dictionary.get("platforms_supported", [])
     if platforms:
         sections.append("\n## Supported Creator Platforms\n")
         sections.append(", ".join(platforms) + "\n")
 
     # --- FAQ ---
     sections.append("\n## Frequently Asked Questions\n")
-    for q_key, answer in kb.get("faq", {}).items():
+    for q_key, answer in knowledge_dictionary.get("faq", {}).items():
         nice_q = q_key.replace("_", " ").title()
         sections.append(f"**{nice_q}:** {answer}\n")
 
@@ -76,35 +76,35 @@ def query_knowledge_base(query: str) -> str:
     Falls back to the full context if no specific section matches.
     Useful if you later want to swap in a vector-store retriever.
     """
-    q = query.lower()
-    kb = _load_kb()
+    lower_user_query = query.lower()
+    knowledge_dictionary = _load_kb()
 
     # Check for pricing intent
-    if any(word in q for word in ("price", "pricing", "cost", "plan", "tier", "basic", "pro", "enterprise")):
-        section = kb.get("pricing", {})
+    if any(word in lower_user_query for word in ("price", "pricing", "cost", "plan", "tier", "basic", "pro", "enterprise")):
+        section = knowledge_dictionary.get("pricing", {})
         lines = ["Here are the AutoStream pricing plans:\n"]
-        for plan, details in section.items():
-            features = ", ".join(details.get("features", []))
+        for plan, plan_specifications in section.items():
+            features = ", ".join(plan_specifications.get("features", []))
             lines.append(
-                f"**{plan}** — {details['price']}  |  "
-                f"{details.get('limit', '')}  |  "
-                f"{details.get('resolution', '')}  |  "
+                f"**{plan}** — {plan_specifications['price']}  |  "
+                f"{plan_specifications.get('limit', '')}  |  "
+                f"{plan_specifications.get('resolution', '')}  |  "
                 f"Features: {features}"
             )
         return "\n".join(lines)
 
     # Check for policy / refund / cancel intent
-    if any(word in q for word in ("refund", "cancel", "policy", "support", "trial", "data")):
-        section = kb.get("policies", {})
+    if any(word in lower_user_query for word in ("refund", "cancel", "policy", "support", "trial", "data")):
+        section = knowledge_dictionary.get("policies", {})
         lines = ["Relevant AutoStream policies:\n"]
-        for key, val in section.items():
-            if any(w in q for w in key.split("_")) or "policy" in q:
-                nice = key.replace("_", " ").title()
-                lines.append(f"**{nice}:** {val}")
+        for key, policy_description in section.items():
+            if any(w in lower_user_query for w in key.split("_")) or "policy" in lower_user_query:
+                formatted_policy_title = key.replace("_", " ").title()
+                lines.append(f"**{formatted_policy_title}:** {policy_description}")
         if len(lines) == 1:  # nothing matched — return all policies
-            for key, val in section.items():
-                nice = key.replace("_", " ").title()
-                lines.append(f"**{nice}:** {val}")
+            for key, policy_description in section.items():
+                formatted_policy_title = key.replace("_", " ").title()
+                lines.append(f"**{formatted_policy_title}:** {policy_description}")
         return "\n".join(lines)
 
     # Default: return everything

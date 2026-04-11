@@ -12,38 +12,13 @@ An intelligent conversational sales agent built with **LangGraph** and **Google 
 | **Tool Calling** | Triggers `mock_lead_capture` only when all three fields are present |
 | **Persistent Memory** | Maintains conversation state across turns within a session |
 
-## Architecture Explanation (~200 words)
+## Architecture Explanation
 
 This project uses **LangGraph** because the required flow is stateful and step-based, not a single prompt/response. LangGraph gives explicit control over conversation routing: one node classifies intent, another handles RAG responses, another collects lead fields, and a final node calls the tool only when all required values are present. That graph structure makes the behavior predictable, easy to debug, and aligned with the evaluation criteria around tool safety and reasoning.
 
 For state management, the shared `AgentState` stores chat history plus `user_name`, `user_email`, `user_platform`, `intent`, and `lead_captured`. Because this state is carried forward each turn, the agent can remember partial lead details across 5-6 messages and continue collection without asking for already provided information. The lead flow is "sticky": once signup intent is detected, the graph remains in lead-collection mode until all three fields are collected or the conversation changes.
 
 RAG uses a local JSON knowledge base in `data/knowledge_base.json` (as required). The retriever is intentionally lightweight because the KB is small and structured. This keeps responses grounded in known pricing and policy facts while avoiding over-engineering. Overall, this design balances correctness, maintainability, and real-world extensibility.
-
-## Architecture Diagram
-
-```text
-User Message
-     │
-     ▼
-┌────────────────┐
-│ classify_intent │  ← LLM classifies: greeting / info / signup
-└───────┬────────┘
-        │
-   ┌────┴─────┐
-   ▼          ▼
-respond    collect_lead ◄──┐
- _info        │             │ (loops via user replies)
-   │     ┌────┴─────┐      │
-   │     │ all fields?│─No─►┘
-   │     └────┬─────┘
-   │          │ Yes
-   │          ▼
-   │     call_tool  →  mock_lead_capture
-   │          │
-   ▼          ▼
-  END        END
-```
 
 ## Project Structure
 
@@ -172,6 +147,10 @@ async def webhook(request: Request):
 2. Send a high-intent message (for example, "I want to try the Pro plan for my YouTube channel").
 3. Show lead qualification prompts collecting missing Name and Email.
 4. Provide all details and show successful `mock_lead_capture` execution.
+
+## Development Guidelines
+
+Please review our strict [Project Instructions & AI Guidelines](project_instructions.md) before contributing or prompting AI assistants. We prioritize clean, readable, human-centric code without unnecessary abstractions.
 
 ## License
 

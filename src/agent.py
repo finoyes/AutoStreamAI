@@ -38,6 +38,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from langchain_core.messages import AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 
@@ -120,7 +121,7 @@ def _get_llm(temperature: float = 0.3):
     )
 
 
-def _is_retryable_model_error(exc: Exception) -> bool:
+def _is_retryable_model_error(exc: ChatGoogleGenerativeAIError) -> bool:
     message = str(exc).upper()
     return (
         ("RESOURCE_EXHAUSTED" in message)
@@ -136,7 +137,7 @@ def _invoke_with_model_failover(messages: list[Any], temperature: float) -> Any:
     global _ACTIVE_GEMINI_MODEL
 
     ordered_models = [_ACTIVE_GEMINI_MODEL, *[m for m in _MODEL_CANDIDATES if m != _ACTIVE_GEMINI_MODEL]]
-    last_exc: Exception | None = None
+    last_chat_error: ChatGoogleGenerativeAIError | None = None
 
     for model in ordered_models:
         llm = ChatGoogleGenerativeAI(
@@ -146,17 +147,17 @@ def _invoke_with_model_failover(messages: list[Any], temperature: float) -> Any:
             convert_system_message_to_human=True,
         )
         try:
-            result = llm.invoke(messages)
+            model_response_payload = llm.invoke(messages)
             _ACTIVE_GEMINI_MODEL = model
-            return result
-        except Exception as exc:
-            last_exc = exc
+            return model_response_payload
+        except ChatGoogleGenerativeAIError as exc:
+            last_chat_error = exc
             if not _is_retryable_model_error(exc):
                 raise
             continue
 
-    if last_exc is not None:
-        raise last_exc
+    if last_chat_error is not None:
+        raise last_chat_error
     raise RuntimeError("No Gemini model candidates configured")
 
 
@@ -200,14 +201,14 @@ def _build_system_message() -> SystemMessage:
     return SystemMessage(content=_SYSTEM_PROMPT.format(context=context))
 
 
-def _as_text(content: Any) -> str:
+def _extract_string_from_llm_payload(content: Any) -> str:
     """Normalize model content that may be either plain text or structured blocks."""
     if isinstance(content, str):
         return content
     if isinstance(content, dict):
-        text = content.get("text")
-        if isinstance(text, str):
-            return text
+        raw_message_string = content.get("text")
+        if isinstance(raw_message_string, str):
+            return raw_message_string
         return str(content)
     if isinstance(content, list):
         parts: list[str] = []
@@ -216,13 +217,13 @@ def _as_text(content: Any) -> str:
                 parts.append(item)
                 continue
             if isinstance(item, dict):
-                text = item.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
+                raw_message_string = item.get("text")
+                if isinstance(raw_message_string, str):
+                    parts.append(raw_message_string)
                     continue
-            text_attr = getattr(item, "text", None)
-            if isinstance(text_attr, str):
-                parts.append(text_attr)
+            raw_message_string_attr = getattr(item, "text", None)
+            if isinstance(raw_message_string_attr, str):
+                parts.append(raw_message_string_attr)
         return "\n".join(parts).strip()
     return str(content)
 
@@ -230,7 +231,7 @@ def _as_text(content: Any) -> str:
 def _last_user_text(state: AgentState) -> str:
     for msg in reversed(state.get("messages", [])):
         if getattr(msg, "type", "") == "human":
-            return _as_text(getattr(msg, "content", "")).strip()
+            return _extract_string_from_llm_payload(getattr(msg, "content", "")).strip()
     return ""
 
 
@@ -345,8 +346,8 @@ def classify_intent(state: AgentState) -> dict:
         *state["messages"],
     ]
 
-    response = _invoke_with_model_failover(classification_prompt, temperature=0.0)
-    intent = _as_text(response.content).strip().lower()
+    model_response_payload = _invoke_with_model_failover(classification_prompt, temperature=0.0)
+    intent = _extract_string_from_llm_payload(model_response_payload.content).strip().lower()
 
     # Normalise edge cases
     if "signup" in intent or "sign" in intent:
@@ -361,12 +362,12 @@ def classify_intent(state: AgentState) -> dict:
 
 def respond_info(state: AgentState) -> dict:
     """Handle greetings and informational questions using the full RAG context."""
-    latest = _last_user_text(state)
-    latest_lower = latest.lower()
+    recent_user_message = _last_user_text(state)
+    latest_lower = recent_user_message.lower()
 
     # Fast-path local answers for common FAQ/pricing/policy requests.
     if any(marker in latest_lower for marker in _INFO_MARKERS):
-        return {"messages": [AIMessage(content=query_knowledge_base(latest))]}
+        return {"messages": [AIMessage(content=query_knowledge_base(recent_user_message))]}
 
     if any(marker in latest_lower for marker in _GREETING_MARKERS) and len(latest_lower.split()) <= 12:
         return {
@@ -381,8 +382,8 @@ def respond_info(state: AgentState) -> dict:
         }
 
     messages = [_build_system_message(), *state["messages"]]
-    response = _invoke_with_model_failover(messages, temperature=0.4)
-    return {"messages": [AIMessage(content=_as_text(response.content))]}
+    model_response_payload = _invoke_with_model_failover(messages, temperature=0.4)
+    return {"messages": [AIMessage(content=_extract_string_from_llm_payload(model_response_payload.content))]}
 
 
 def collect_lead(state: AgentState) -> dict:
@@ -394,35 +395,33 @@ def collect_lead(state: AgentState) -> dict:
     email = state.get("user_email")
     platform = state.get("user_platform")
 
-    updates: dict = {}
-    latest = _last_user_text(state)
+    state_mutations: dict = {}
+    recent_user_message = _last_user_text(state)
 
     if not name:
-        name_val = _extract_name(latest)
+        name_val = _extract_name(recent_user_message)
         if name_val:
-            updates["user_name"] = name_val
+            state_mutations["user_name"] = name_val
             name = name_val
 
     if not email:
-        email_val = _extract_email(latest)
+        email_val = _extract_email(recent_user_message)
         if email_val:
-            updates["user_email"] = email_val
+            state_mutations["user_email"] = email_val
             email = email_val
 
     if not platform:
-        platform_val = _extract_platform(latest)
+        platform_val = _extract_platform(recent_user_message)
         if platform_val:
-            updates["user_platform"] = platform_val
+            state_mutations["user_platform"] = platform_val
             platform = platform_val
 
-    # --- If all fields present, signal readiness (router will catch it) ---
     if name and email and platform:
-        updates["user_name"] = name
-        updates["user_email"] = email
-        updates["user_platform"] = platform
-        return updates  # no message — router sends to call_tool
+        state_mutations["user_name"] = name
+        state_mutations["user_email"] = email
+        state_mutations["user_platform"] = platform
+        return state_mutations
 
-    # --- Otherwise, ask for the next missing field ----------------------
     if not name:
         ask = "That's great to hear you're interested! To get you set up, could you share your **full name**?"
     elif not email:
@@ -430,8 +429,8 @@ def collect_lead(state: AgentState) -> dict:
     else:
         ask = f"Almost there! Which **creator platform** do you primarily use? (e.g., YouTube, TikTok, Instagram)"
 
-    updates["messages"] = [AIMessage(content=ask)]
-    return updates
+    state_mutations["messages"] = [AIMessage(content=ask)]
+    return state_mutations
 
 
 def call_tool(state: AgentState) -> dict:

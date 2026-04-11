@@ -57,41 +57,6 @@ def _sanitize_for_gui(text: str) -> str:
     return cleaned
 
 
-def _is_quota_error(exc: Exception) -> bool:
-    message = str(exc).upper()
-    return "RESOURCE_EXHAUSTED" in message or "429" in message or "QUOTA" in message
-
-
-def _is_model_not_found_error(exc: Exception) -> bool:
-    message = str(exc).upper()
-    return "NOT_FOUND" in message and "MODEL" in message
-
-
-def _is_service_unavailable_error(exc: Exception) -> bool:
-    message = str(exc).upper()
-    return "UNAVAILABLE" in message or "503" in message
-
-
-def _is_daily_quota_error(exc: Exception) -> bool:
-    message = str(exc).upper()
-    return (
-        "PERDAY" in message
-        or "PER DAY" in message
-        or "GENERATEREQUESTSPERDAY" in message
-        or "REQUESTSPERDAY" in message
-    )
-
-
-def _extract_retry_seconds(exc: Exception, default_seconds: int = 15) -> int:
-    message = str(exc)
-    match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", message, flags=re.IGNORECASE)
-    if not match:
-        return default_seconds
-    try:
-        value = int(float(match.group(1)))
-        return max(1, value)
-    except ValueError:
-        return default_seconds
 
 
 def _offline_fallback_reply(user_input: str, state: AgentState) -> str:
@@ -134,26 +99,6 @@ def _offline_fallback_reply(user_input: str, state: AgentState) -> str:
     )
 
 
-def _format_model_error(exc: Exception) -> str:
-    message = str(exc)
-
-    if _is_quota_error(exc):
-        retry_hint = ""
-        match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", message, flags=re.IGNORECASE)
-        if match:
-            retry_hint = f" Retry in about {int(float(match.group(1)))} seconds."
-        return "Gemini quota/rate limit reached." + retry_hint
-
-    if _is_model_not_found_error(exc):
-        return (
-            "Configured Gemini model is not available for this API key/project. "
-            "Use one of: gemini-flash-latest, gemini-2.0-flash, gemini-2.5-flash."
-        )
-
-    if _is_service_unavailable_error(exc):
-        return "Gemini is temporarily unavailable due to high demand."
-
-    return f"Model request failed: {message}"
 
 
 class AutoStreamGUI:
@@ -458,70 +403,77 @@ class AutoStreamGUI:
         if self._pending:
             return "break"
 
-        message = self.user_input.get().strip()
-        if not message:
+        chat_input_text = self.user_input.get().strip()
+        if not chat_input_text:
             return "break"
 
         self.user_input.delete(0, tk.END)
-        self._append_message("user", message)
+        self._append_message("user", chat_input_text)
 
-        self.state["messages"] = list(self.state["messages"]) + [HumanMessage(content=message)]
+        self.state["messages"] = list(self.state["messages"]) + [HumanMessage(content=chat_input_text)]
 
         self._pending = True
         self._set_controls_enabled(False)
         self._show_thinking_message()
         self._start_thinking_animation()
 
-        worker = threading.Thread(target=self._process_message, args=(message,), daemon=True)
+        worker = threading.Thread(target=self._process_message, args=(chat_input_text,), daemon=True)
         worker.start()
         return "break"
 
-    def _process_message(self, message: str) -> None:
-        reply: str
+    def _process_message(self, chat_input_text: str) -> None:
+        assistant_response: str
 
         if self._is_offline_mode_active():
-            fallback = _offline_fallback_reply(message, self.state)
+            fallback = _offline_fallback_reply(chat_input_text, self.state)
             self.state["messages"] = list(self.state["messages"]) + [AIMessage(content=fallback)]
-            reply = f"{self._offline_notice()}\n\n{fallback}"
-            self._event_queue.put(("assistant", reply))
+            assistant_response = f"{self._offline_notice()}\n\n{fallback}"
+            self._event_queue.put(("assistant", assistant_response))
             self._event_queue.put(("status", "Ready"))
             self._event_queue.put(("controls", "enabled"))
             return
 
         try:
-            result = cast(AgentState, self.agent.invoke(self.state))
-            self.state = result
-            intent_label = format_detected_intent(result.get("intent"), result.get("intent_source"))
+            updated_state = cast(AgentState, self.agent.invoke(self.state))
+            self.state = updated_state
+            intent_label = format_detected_intent(updated_state.get("intent"), updated_state.get("intent_source"))
 
-            ai_messages = [
-                m for m in result.get("messages", [])
+            assistant_messages = [
+                m for m in updated_state.get("messages", [])
                 if hasattr(m, "content") and getattr(m, "type", "") == "ai"
             ]
-            if ai_messages:
-                reply = f"Detected intent: {intent_label}\n\n{ai_messages[-1].content}"
+            if assistant_messages:
+                assistant_response = f"Detected intent: {intent_label}\n\n{assistant_messages[-1].content}"
             else:
-                reply = "No response generated. Please try again."
+                assistant_response = "No response generated. Please try again."
 
         except ChatGoogleGenerativeAIError as exc:
-            friendly_error = _format_model_error(exc)
-            if _is_quota_error(exc) or _is_model_not_found_error(exc) or _is_service_unavailable_error(exc):
-                if _is_quota_error(exc):
-                    if _is_daily_quota_error(exc):
+            err_str = str(exc).upper()
+            is_exhausted = "RESOURCE_EXHAUSTED" in err_str or "429" in err_str or "QUOTA" in err_str
+            is_offline_condition = is_exhausted or "NOT_FOUND" in err_str or "UNAVAILABLE" in err_str or "503" in err_str
+            
+            if is_offline_condition:
+                if is_exhausted:
+                    if "PERDAY" in err_str or "PER DAY" in err_str or "REQUESTSPERDAY" in err_str:
                         self._offline_hard_quota = True
                     else:
-                        self._offline_until_ts = time.time() + _extract_retry_seconds(exc)
-                fallback = _offline_fallback_reply(message, self.state)
+                        match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", str(exc), flags=re.IGNORECASE)
+                        retry_seconds = max(1, int(float(match.group(1)))) if match else 15
+                        self._offline_until_ts = time.time() + retry_seconds
+                    friendly_error = "Gemini quota/rate limit reached."
+                elif "NOT_FOUND" in err_str:
+                    friendly_error = "Configured Gemini model is not available for this API key/project."
+                else:
+                    friendly_error = "Gemini is temporarily unavailable due to high demand."
+
+                fallback = _offline_fallback_reply(chat_input_text, self.state)
                 self.state["messages"] = list(self.state["messages"]) + [AIMessage(content=fallback)]
-                reply = f"{friendly_error}\n\n{fallback}"
+                assistant_response = f"{friendly_error}\n\n{fallback}"
             else:
                 self.state["messages"] = list(self.state["messages"][:-1])
-                reply = friendly_error
+                assistant_response = f"Model request failed: {exc}"
 
-        except Exception as exc:
-            self.state["messages"] = list(self.state["messages"][:-1])
-            reply = f"Unexpected error: {exc}"
-
-        self._event_queue.put(("assistant", reply))
+        self._event_queue.put(("assistant", assistant_response))
         self._event_queue.put(("status", "Ready"))
         self._event_queue.put(("controls", "enabled"))
 

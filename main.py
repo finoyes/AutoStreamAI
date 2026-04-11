@@ -38,60 +38,12 @@ BANNER = f"""
 """
 
 
-def _safe_print(text: str) -> None:
-    """Print safely on terminals that do not support full Unicode output."""
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        print(text.encode("ascii", errors="ignore").decode("ascii"))
 
 
-def _print_llm_error(exc: Exception) -> None:
-    """Render a friendly, actionable message for model invocation failures."""
-    message = str(exc)
-    if "RESOURCE_EXHAUSTED" in message or "429" in message:
-        retry_hint = ""
-        match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", message, flags=re.IGNORECASE)
-        if match:
-            retry_hint = f" Retry in about {int(float(match.group(1)))} seconds."
-        print(
-            f"\n{YELLOW}Gemini quota/rate limit reached.{RESET}"
-            f"\n{DIM}Please wait and try again.{retry_hint}{RESET}"
-            f"\n{DIM}Usage: https://ai.dev/rate-limit{RESET}\n"
-        )
-        return
 
-    if "NOT_FOUND" in message and "model" in message.lower():
-        print(
-            f"\n{YELLOW}Configured Gemini model is not available for this API key/project.{RESET}"
-            f"\n{DIM}Use one of: gemini-flash-latest, gemini-2.0-flash, gemini-2.5-flash.{RESET}\n"
-        )
-        return
-
-    print(
-        f"\n{YELLOW}The model request failed.{RESET}"
-        f"\n{DIM}{message}{RESET}\n"
-    )
-
-
-def _is_quota_error(exc: Exception) -> bool:
-    message = str(exc).upper()
-    return "RESOURCE_EXHAUSTED" in message or "429" in message or "QUOTA" in message
-
-
-def _is_model_not_found_error(exc: Exception) -> bool:
-    message = str(exc).upper()
-    return "NOT_FOUND" in message and "MODEL" in message
-
-
-def _is_service_unavailable_error(exc: Exception) -> bool:
-    message = str(exc).upper()
-    return "UNAVAILABLE" in message or "503" in message
-
-
-def _offline_fallback_reply(user_input: str, state: AgentState) -> str:
+def _offline_fallback_reply(raw_user_string: str, state: AgentState) -> str:
     """Return a local response when online model calls are unavailable."""
-    q = user_input.lower()
+    q = raw_user_string.lower()
 
     # Explicit high-intent signup phrases only.
     signup_markers = (
@@ -110,7 +62,7 @@ def _offline_fallback_reply(user_input: str, state: AgentState) -> str:
     info_markers = ("price", "pricing", "cost", "refund", "cancel", "policy", "support", "faq", "plan", "trial")
 
     if any(w in q for w in info_markers):
-        kb_answer = query_knowledge_base(user_input)
+        kb_answer = query_knowledge_base(raw_user_string)
         return (
             "I am temporarily in offline mode because the online model is unavailable. "
             "Here is the answer from the local knowledge base:\n\n"
@@ -134,7 +86,10 @@ def _offline_fallback_reply(user_input: str, state: AgentState) -> str:
 
 
 def main():
-    _safe_print(BANNER)
+    try:
+        print(BANNER)
+    except UnicodeEncodeError:
+        print(BANNER.encode("ascii", errors="ignore").decode("ascii"))
 
     # Compile the graph once
     agent = build_agent_graph()
@@ -152,58 +107,70 @@ def main():
 
     while True:
         try:
-            user_input = input(f"{GREEN}{BOLD}You ▶  {RESET}").strip()
+            raw_user_string = input(f"{GREEN}{BOLD}You ▶  {RESET}").strip()
         except (EOFError, KeyboardInterrupt):
             print(f"\n{DIM}Goodbye!{RESET}")
             break
 
-        if not user_input:
+        if not raw_user_string:
             continue
-        if user_input.lower() in ("quit", "exit", "q"):
+        if raw_user_string.lower() in ("quit", "exit", "q"):
             print(f"\n{DIM}Thanks for chatting — see you next time!{RESET}")
             break
 
         # Append the user message
-        state["messages"] = list(state["messages"]) + [HumanMessage(content=user_input)]
+        state["messages"] = list(state["messages"]) + [HumanMessage(content=raw_user_string)]
 
         # Run the graph
         print(f"\n{DIM}AutoStream is thinking...{RESET}", flush=True)
         try:
-            result = cast(AgentState, agent.invoke(state))
+            updated_state = cast(AgentState, agent.invoke(state))
         except KeyboardInterrupt:
             state["messages"] = list(state["messages"][:-1])
             print(f"\n{YELLOW}Request interrupted. Please try again.{RESET}\n")
             continue
         except ChatGoogleGenerativeAIError as exc:
-            if _is_quota_error(exc) or _is_model_not_found_error(exc) or _is_service_unavailable_error(exc):
-                _print_llm_error(exc)
-                fallback = _offline_fallback_reply(user_input, state)
-                state["messages"] = list(state["messages"]) + [AIMessage(content=fallback)]
-                print(f"\n{CYAN}{BOLD}AutoStream ▶  {RESET}{fallback}\n")
+            err_str = str(exc).upper()
+            is_offline_condition = (
+                "RESOURCE_EXHAUSTED" in err_str or "429" in err_str or "QUOTA" in err_str or
+                "NOT_FOUND" in err_str or
+                "UNAVAILABLE" in err_str or "503" in err_str
+            )
+            
+            if is_offline_condition:
+                if "RESOURCE_EXHAUSTED" in err_str or "429" in err_str:
+                    retry_hint = ""
+                    match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", str(exc), flags=re.IGNORECASE)
+                    if match:
+                        retry_hint = f" Retry in about {int(float(match.group(1)))} seconds."
+                    print(f"\n{YELLOW}Gemini quota/rate limit reached.{RESET}\n{DIM}Please wait and try again.{retry_hint}{RESET}")
+                elif "NOT_FOUND" in err_str:
+                    print(f"\n{YELLOW}Configured Gemini model is not available.{RESET}\n{DIM}Check API key and model name.{RESET}")
+                else:
+                    print(f"\n{YELLOW}Model API temporarily unavailable.{RESET}\n{DIM}{str(exc)}{RESET}")
+
+                fallback_text = _offline_fallback_reply(raw_user_string, state)
+                state["messages"] = list(state["messages"]) + [AIMessage(content=fallback_text)]
+                print(f"\n{CYAN}{BOLD}AutoStream ▶  {RESET}{fallback_text}\n")
                 continue
 
             # Roll back the user message so retries do not duplicate turns.
             state["messages"] = list(state["messages"][:-1])
-            _print_llm_error(exc)
-            continue
-        except Exception as exc:
-            state["messages"] = list(state["messages"][:-1])
-            _print_llm_error(exc)
+            print(f"\n{YELLOW}The model request failed.{RESET}\n{DIM}{str(exc)}{RESET}\n")
             continue
 
         # Replace with returned state snapshot
-        state = result
+        state = updated_state
 
         intent_badge = format_detected_intent(state.get("intent"), state.get("intent_source"))
 
         # Print the last AI message
-        ai_messages = [m for m in result.get("messages", []) if hasattr(m, "content") and m.type == "ai"]
-        if ai_messages:
-            last_reply = ai_messages[-1].content
+        assistant_messages = [m for m in updated_state.get("messages", []) if hasattr(m, "content") and m.type == "ai"]
+        if assistant_messages:
+            assistant_reply_text = assistant_messages[-1].content
             print(f"\n{DIM}Detected intent: {intent_badge}{RESET}")
-            print(f"\n{CYAN}{BOLD}AutoStream ▶  {RESET}{last_reply}\n")
+            print(f"\n{CYAN}{BOLD}AutoStream ▶  {RESET}{assistant_reply_text}\n")
         else:
-            # Fallback — shouldn't normally happen
             print(f"\n{YELLOW}(No response generated — please try again.){RESET}\n")
 
 
