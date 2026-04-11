@@ -5,7 +5,7 @@ An intelligent conversational sales agent built with **LangGraph** and **Google 
 ## What It Does
 
 | Capability | Description |
-|---|---|
+| --- | --- |
 | **RAG-Powered Q&A** | Answers pricing, policy, and feature questions from a structured knowledge base |
 | **Intent Classification** | Detects the 3 required intents: Casual greeting, Product/Pricing inquiry, High-intent lead |
 | **Multi-Turn Lead Capture** | Collects Name → Email → Platform one at a time before firing the CRM tool |
@@ -22,7 +22,7 @@ RAG uses a local JSON knowledge base in `data/knowledge_base.json` (as required)
 
 ## Architecture Diagram
 
-```
+```text
 User Message
      │
      ▼
@@ -47,7 +47,7 @@ respond    collect_lead ◄──┐
 
 ## Project Structure
 
-```
+```text
 autostream-agent/
 ├── data/
 │   └── knowledge_base.json      # Pricing, policies, FAQ (RAG source)
@@ -98,7 +98,7 @@ pip install -r requirements.txt
 
 Edit `.env` and paste your Google Gemini API key:
 
-```
+```dotenv
 GEMINI_API_KEY=your_actual_key_here
 ```
 
@@ -119,7 +119,7 @@ python gui.py
 ### 7. Try These Conversations
 
 | Scenario | Example Messages |
-|---|---|
+| --- | --- |
 | **Pricing inquiry** | "What plans do you offer?" / "How much is Pro?" |
 | **Policy question** | "What's your refund policy?" / "Can I cancel anytime?" |
 | **Sign-up flow** | "I want to sign up" → provide name → email → platform |
