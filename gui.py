@@ -161,7 +161,7 @@ class AutoStreamGUI:
         self.root = tk.Tk()
         self.root.title("AutoStream AI Assistant")
         self.root.geometry("980x700")
-        self.root.minsize(860, 620)
+        self.root.minsize(560, 420)
         self.root.configure(bg=COLORS["app_bg"])
 
         self.agent = build_agent_graph()
@@ -183,9 +183,18 @@ class AutoStreamGUI:
         self._thinking_end_index: str | None = None
         self._offline_hard_quota = False
         self._offline_until_ts = 0.0
+        self._compact_layout = False
+
+        self.container: ttk.Frame
+        self.header_card: ttk.Frame
+        self.header_left: ttk.Frame
+        self.header_sub: ttk.Label
+        self.input_row: ttk.Frame
 
         self._configure_styles()
         self._build_ui()
+        self.root.bind("<Configure>", self._on_window_resize)
+        self.root.after(50, self._apply_responsive_layout)
         self._append_message("assistant", "Welcome to AutoStream AI. Ask me about pricing, policies, or signup.")
         self.root.after(100, self._drain_event_queue)
 
@@ -250,30 +259,32 @@ class AutoStreamGUI:
         )
 
     def _build_ui(self) -> None:
-        container = ttk.Frame(self.root, padding=14, style="App.TFrame")
-        container.pack(fill=tk.BOTH, expand=True)
+        self.container = ttk.Frame(self.root, padding=14, style="App.TFrame")
+        self.container.pack(fill=tk.BOTH, expand=True)
 
-        header_card = ttk.Frame(container, style="Header.TFrame", padding=(16, 12))
-        header_card.pack(fill=tk.X, pady=(0, 12))
+        self.header_card = ttk.Frame(self.container, style="Header.TFrame", padding=(16, 12))
+        self.header_card.pack(fill=tk.X, pady=(0, 12))
 
-        header_left = ttk.Frame(header_card, style="Header.TFrame")
-        header_left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.header_left = ttk.Frame(self.header_card, style="Header.TFrame")
+        self.header_left.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        header_title = ttk.Label(header_left, text="AutoStream AI Assistant", style="HeaderTitle.TLabel")
+        header_title = ttk.Label(self.header_left, text="AutoStream AI Assistant", style="HeaderTitle.TLabel")
         header_title.pack(anchor=tk.W)
-        header_sub = ttk.Label(
-            header_left,
+        self.header_sub = ttk.Label(
+            self.header_left,
             text="Professional support for pricing, policies, and creator onboarding.",
             style="HeaderSub.TLabel",
+            wraplength=560,
+            justify=tk.LEFT,
         )
-        header_sub.pack(anchor=tk.W, pady=(2, 0))
+        self.header_sub.pack(anchor=tk.W, pady=(2, 0))
 
         self.status_var = tk.StringVar(value="Ready")
-        self.status_badge = ttk.Label(header_card, textvariable=self.status_var, style="StatusReady.TLabel")
+        self.status_badge = ttk.Label(self.header_card, textvariable=self.status_var, style="StatusReady.TLabel")
         self.status_badge.pack(side=tk.RIGHT, padx=(10, 0))
 
-        chat_card = ttk.Frame(container, style="Card.TFrame", padding=1)
-        chat_card.pack(fill=tk.BOTH, expand=True)
+        chat_card = ttk.Frame(self.container, style="Card.TFrame", padding=1)
+        chat_card.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self.chat = scrolledtext.ScrolledText(
             chat_card,
@@ -301,15 +312,56 @@ class AutoStreamGUI:
 
         self.chat.tag_configure("msg", lmargin1=4, lmargin2=4, spacing1=3, spacing3=8)
 
-        input_row = ttk.Frame(container, style="App.TFrame")
-        input_row.pack(fill=tk.X, pady=(12, 0))
+        self.input_row = ttk.Frame(self.container, style="App.TFrame")
+        self.input_row.pack(side=tk.BOTTOM, fill=tk.X, pady=(12, 0))
 
-        self.user_input = ttk.Entry(input_row, font=("Segoe UI", 11), style="Input.TEntry")
+        self.user_input = ttk.Entry(self.input_row, font=("Segoe UI", 11), style="Input.TEntry")
         self.user_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.user_input.bind("<Return>", self._on_send)
 
-        self.send_button = ttk.Button(input_row, text="Send", style="Send.TButton", command=lambda: self._on_send(None))
+        self.send_button = ttk.Button(
+            self.input_row,
+            text="Send",
+            style="Send.TButton",
+            command=lambda: self._on_send(None),
+        )
         self.send_button.pack(side=tk.LEFT, padx=(8, 0))
+
+    def _set_header_layout(self, compact: bool) -> None:
+        self.status_badge.pack_forget()
+        if compact:
+            self.status_badge.pack(anchor=tk.W, pady=(8, 0))
+        else:
+            self.status_badge.pack(side=tk.RIGHT, padx=(10, 0))
+
+    def _set_input_layout(self, compact: bool) -> None:
+        self.user_input.pack_forget()
+        self.send_button.pack_forget()
+        if compact:
+            self.user_input.pack(fill=tk.X)
+            self.send_button.pack(fill=tk.X, pady=(8, 0))
+        else:
+            self.user_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self.send_button.pack(side=tk.LEFT, padx=(8, 0))
+
+    def _apply_responsive_layout(self) -> None:
+        width = self.root.winfo_width()
+        compact = width < 760
+
+        if compact != self._compact_layout:
+            self._compact_layout = compact
+            self._set_header_layout(compact)
+            self._set_input_layout(compact)
+
+        if compact:
+            wraplength = max(260, width - 80)
+        else:
+            wraplength = max(340, width - 360)
+        self.header_sub.configure(wraplength=wraplength)
+
+    def _on_window_resize(self, event) -> None:
+        if event.widget is self.root:
+            self._apply_responsive_layout()
 
     def _append_message(self, role: str, text: str) -> None:
         display_text = _sanitize_for_gui(text) if role == "assistant" else text
