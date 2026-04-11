@@ -24,6 +24,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.agent import build_agent_graph
 from src.rag_engine import query_knowledge_base
 from src.state import AgentState
+from src.tools import mock_lead_capture
 
 
 COLORS = {
@@ -61,25 +62,120 @@ def _sanitize_for_gui(text: str) -> str:
     return cleaned
 
 
-
-
 def _offline_fallback_reply(user_input: str, state: AgentState) -> str:
     """Return a local response when online model calls are unavailable."""
     q = user_input.lower()
 
-    signup_markers = (
-        "sign up",
-        "signup",
-        "get started",
-        "start a trial",
-        "start trial",
-        "book a demo",
-        "schedule a demo",
-        "subscribe",
-        "buy now",
-    )
+    def is_signup_intent_text(text: str) -> bool:
+        lowered = text.lower()
+        explicit_markers = (
+            "sign up",
+            "signup",
+            "get started",
+            "start a trial",
+            "start trial",
+            "book a demo",
+            "schedule a demo",
+            "subscribe",
+            "buy now",
+            "i want pro plan",
+            "i want the pro plan",
+            "try pro",
+        )
+        if any(marker in lowered for marker in explicit_markers):
+            return True
+        return bool(
+            re.search(
+                r"\b(i\s*(want|would\s+like|choose|need)|i[' ]?ll\s+take|go\s+with)\s+(the\s+)?(pro|basic)\s+plan\b",
+                lowered,
+            )
+        )
+
+    def extract_email(text: str) -> str | None:
+        match = re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", text)
+        return match.group(0) if match else None
+
+    def extract_platform(text: str) -> str | None:
+        lowered = text.lower()
+        if re.search(r"\byoutube\b", lowered):
+            return "Youtube"
+        if re.search(r"\btiktok\b", lowered):
+            return "Tiktok"
+        if re.search(r"\binstagram\b", lowered):
+            return "Instagram"
+        if re.search(r"\bfacebook\b", lowered):
+            return "Facebook"
+        if re.search(r"\blinkedin\b", lowered):
+            return "Linkedin"
+        if re.search(r"\btwitch\b", lowered):
+            return "Twitch"
+        if re.search(r"\b(?:x|twitter)\b", lowered):
+            return "X"
+        return None
+
+    def extract_name(text: str) -> str | None:
+        lowered = text.lower()
+        patterns = (
+            r"(?:my\s+full\s+name\s+is)\s+([A-Za-z][A-Za-z\s.'-]{1,60})",
+            r"(?:my name is|i am|i'm|this is)\s+([A-Za-z][A-Za-z\s.'-]{1,60})",
+            r"name\s*[:\-]\s*([A-Za-z][A-Za-z\s.'-]{1,60})",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, lowered, flags=re.IGNORECASE)
+            if match:
+                raw = match.group(1).strip(" .,!?")
+                return " ".join(part.capitalize() for part in raw.split())
+        if "@" not in text and len(text.split()) in (2, 3) and text.replace(" ", "").isalpha():
+            return " ".join(part.capitalize() for part in text.split())
+        return None
 
     info_markers = ("price", "pricing", "cost", "refund", "cancel", "policy", "support", "faq", "plan", "trial")
+
+    if not state.get("user_name"):
+        extracted_name = extract_name(user_input)
+        if extracted_name:
+            state["user_name"] = extracted_name
+
+    if not state.get("user_email"):
+        extracted_email = extract_email(user_input)
+        if extracted_email:
+            state["user_email"] = extracted_email
+
+    if not state.get("user_platform"):
+        extracted_platform = extract_platform(user_input)
+        if extracted_platform:
+            state["user_platform"] = extracted_platform
+
+    has_any = bool(state.get("user_name") or state.get("user_email") or state.get("user_platform"))
+    has_all = bool(state.get("user_name") and state.get("user_email") and state.get("user_platform"))
+    lead_in_progress = has_any and not has_all
+
+    if is_signup_intent_text(q) or lead_in_progress or (has_all and not state.get("lead_captured")):
+        state["intent"] = "signup"
+        state["intent_source"] = "offline_rule"
+
+        if not state.get("user_name"):
+            return "I am in offline mode right now. To continue signup, please share your full name."
+        if not state.get("user_email"):
+            return f"Thanks, {state['user_name']}! I am in offline mode right now, so please share your email address next."
+        if not state.get("user_platform"):
+            return "I am in offline mode right now. Which creator platform do you use (YouTube, TikTok, Instagram)?"
+
+        if not state.get("lead_captured"):
+            result = mock_lead_capture.invoke(
+                {
+                    "name": state["user_name"],
+                    "email": state["user_email"],
+                    "platform": state["user_platform"],
+                }
+            )
+            state["lead_captured"] = True
+            return (
+                "Gemini is currently unavailable, but I completed your signup intake in offline mode.\n\n"
+                f"{result}"
+            )
+
+        return "Your signup details are already captured. I can still answer pricing/policy questions while Gemini is unavailable."
 
     if any(w in q for w in info_markers):
         kb_answer = query_knowledge_base(user_input)
@@ -87,15 +183,6 @@ def _offline_fallback_reply(user_input: str, state: AgentState) -> str:
             "I am in offline mode right now. Here is the answer from the local knowledge base:\n\n"
             f"{kb_answer}"
         )
-
-    if any(w in q for w in signup_markers):
-        if not state.get("user_name"):
-            return "I am in offline mode right now. To continue signup, please share your full name."
-        if not state.get("user_email"):
-            return "I am in offline mode right now. Please share your email address next."
-        if not state.get("user_platform"):
-            return "I am in offline mode right now. Which creator platform do you use (YouTube, TikTok, Instagram)?"
-        return "Thanks. I have your signup details and can continue once API access is available again."
 
     return (
         "I cannot call Gemini right now. You can still ask pricing or policy questions "

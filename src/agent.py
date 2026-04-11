@@ -42,6 +42,7 @@ _ACTIVE_GEMINI_MODEL = _MODEL_CANDIDATES[0]
 _SIGNUP_MARKERS = (
     "i want to sign up",
     "i'd like to sign up",
+    "id like to sign up",
     "help me sign up",
     "let me sign up",
     "ready to sign up",
@@ -50,6 +51,12 @@ _SIGNUP_MARKERS = (
     "try the pro plan",
     "try pro",
     "i want the pro plan",
+    "i want pro plan",
+    "i'd like to get the pro plan",
+    "id like to get the pro plan",
+    "get the pro plan",
+    "go with the pro plan",
+    "pro plan please",
     "i'll take the pro plan",
     "get started",
     "start a trial",
@@ -77,6 +84,19 @@ _INFO_MARKERS = (
 _GREETING_MARKERS = ("hello", "hi", "hey", "good morning", "good afternoon", "good evening")
 
 _PLATFORMS = ("youtube", "tiktok", "instagram", "facebook", "linkedin", "x", "twitter", "twitch")
+
+
+def _looks_like_plan_purchase_intent(user_text: str) -> bool:
+    """Detect phrasing that indicates the user is choosing a paid plan now."""
+    lowered = user_text.lower()
+    if re.search(r"\b(sign\s*me\s*up|subscribe\s*me|enroll\s*me)\b", lowered):
+        return True
+    return bool(
+        re.search(
+            r"\b(i\s*(want|would\s+like|['’]?d\s+like|choose|need|am\s+ready\s+for)(\s+to\s+get)?|i[' ]?ll\s+take|let\s+me\s+get|go\s+with)\s+(the\s+)?(pro|basic)\s+plan\b",
+            lowered,
+        )
+    )
 
 def _get_llm(temperature: float = 0.3):
     """Return a ChatGoogleGenerativeAI instance bound with the lead-capture tool."""
@@ -206,7 +226,7 @@ def _fast_intent_from_text(user_text: str) -> str | None:
     text = user_text.lower()
     if not text:
         return None
-    if any(marker in text for marker in _SIGNUP_MARKERS):
+    if any(marker in text for marker in _SIGNUP_MARKERS) or _looks_like_plan_purchase_intent(text):
         return "signup"
     if any(marker in text for marker in _INFO_MARKERS):
         return "info"
@@ -257,9 +277,20 @@ def _extract_email(text: str) -> str | None:
 
 def _extract_platform(text: str) -> str | None:
     lowered = text.lower()
-    for platform in _PLATFORMS:
-        if platform in lowered:
-            return platform.capitalize() if platform != "x" else "X"
+    if re.search(r"\byoutube\b", lowered):
+        return "Youtube"
+    if re.search(r"\btiktok\b", lowered):
+        return "Tiktok"
+    if re.search(r"\binstagram\b", lowered):
+        return "Instagram"
+    if re.search(r"\bfacebook\b", lowered):
+        return "Facebook"
+    if re.search(r"\blinkedin\b", lowered):
+        return "Linkedin"
+    if re.search(r"\btwitch\b", lowered):
+        return "Twitch"
+    if re.search(r"\b(?:x|twitter)\b", lowered):
+        return "X"
     return None
 
 
@@ -328,26 +359,7 @@ def classify_intent(state: AgentState) -> dict:
 
 
 def respond_info(state: AgentState) -> dict:
-    """Handle greetings and informational questions using the full RAG context."""
-    recent_user_message = _last_user_text(state)
-    latest_lower = recent_user_message.lower()
-
-    # Fast-path local answers for common FAQ/pricing/policy requests.
-    if any(marker in latest_lower for marker in _INFO_MARKERS):
-        return {"messages": [AIMessage(content=query_knowledge_base(recent_user_message))]}
-
-    if any(marker in latest_lower for marker in _GREETING_MARKERS) and len(latest_lower.split()) <= 12:
-        return {
-            "messages": [
-                AIMessage(
-                    content=(
-                        "Hello! I can help with AutoStream pricing, policies, and getting started. "
-                        "What would you like to know?"
-                    )
-                )
-            ]
-        }
-
+    """Handle greetings and informational questions using Gemini with full RAG context."""
     messages = [_build_system_message(), *state["messages"]]
     model_response_payload = _invoke_with_model_failover(messages, temperature=0.4)
     return {"messages": [AIMessage(content=_extract_string_from_llm_payload(model_response_payload.content))]}
