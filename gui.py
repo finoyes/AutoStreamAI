@@ -11,6 +11,7 @@ used by the CLI entry point.
 import queue
 import threading
 import time
+import os
 from datetime import datetime
 from typing import cast
 import re
@@ -20,7 +21,7 @@ from tkinter import scrolledtext, ttk
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.agent import build_agent_graph, format_detected_intent
+from src.agent import build_agent_graph
 from src.rag_engine import query_knowledge_base
 from src.state import AgentState
 
@@ -103,6 +104,9 @@ def _offline_fallback_reply(user_input: str, state: AgentState) -> str:
 
 class AutoStreamGUI:
     def __init__(self) -> None:
+        # GUI should actively use Gemini unless user explicitly disables this flag.
+        os.environ.setdefault("AUTOSTREAM_FORCE_GEMINI", "true")
+
         self.root = tk.Tk()
         self.root.title("AutoStream AI Assistant")
         self.root.geometry("980x700")
@@ -129,6 +133,7 @@ class AutoStreamGUI:
         self._offline_hard_quota = False
         self._offline_until_ts = 0.0
         self._compact_layout = False
+        self._force_gemini_mode = os.getenv("AUTOSTREAM_FORCE_GEMINI", "true").strip().lower() in ("1", "true", "yes", "on")
 
         self.container: ttk.Frame
         self.header_card: ttk.Frame
@@ -338,8 +343,6 @@ class AutoStreamGUI:
             if last_char and last_char != "\n":
                 self.chat.insert(tk.END, "\n")
         self._thinking_start_index = self.chat.index(tk.END)
-        timestamp = datetime.now().strftime("%H:%M")
-        self.chat.insert(tk.END, f"AutoStream  {timestamp}\n", ("thinking_header", "msg"))
         self.chat.insert(tk.END, "Thinking...\n\n", ("thinking_body", "msg"))
         self._thinking_end_index = self.chat.index(tk.END)
         self.chat.tag_add("thinking_block", self._thinking_start_index, self._thinking_end_index)
@@ -350,8 +353,9 @@ class AutoStreamGUI:
         self.chat.configure(state=tk.NORMAL)
         ranges = self.chat.tag_ranges("thinking_block")
         if len(ranges) >= 2:
-            # Remove the most recent thinking placeholder block.
-            self.chat.delete(ranges[-2], ranges[-1])
+            # Remove all pending thinking placeholders (from newest to oldest).
+            for idx in range(len(ranges) - 2, -1, -2):
+                self.chat.delete(ranges[idx], ranges[idx + 1])
         self.chat.configure(state=tk.DISABLED)
         self._thinking_start_index = None
         self._thinking_end_index = None
@@ -424,7 +428,7 @@ class AutoStreamGUI:
     def _process_message(self, chat_input_text: str) -> None:
         assistant_response: str
 
-        if self._is_offline_mode_active():
+        if self._is_offline_mode_active() and not self._force_gemini_mode:
             fallback = _offline_fallback_reply(chat_input_text, self.state)
             self.state["messages"] = list(self.state["messages"]) + [AIMessage(content=fallback)]
             assistant_response = f"{self._offline_notice()}\n\n{fallback}"
@@ -436,14 +440,13 @@ class AutoStreamGUI:
         try:
             updated_state = cast(AgentState, self.agent.invoke(self.state))
             self.state = updated_state
-            intent_label = format_detected_intent(updated_state.get("intent"), updated_state.get("intent_source"))
 
             assistant_messages = [
                 m for m in updated_state.get("messages", [])
                 if hasattr(m, "content") and getattr(m, "type", "") == "ai"
             ]
             if assistant_messages:
-                assistant_response = f"Detected intent: {intent_label}\n\n{assistant_messages[-1].content}"
+                assistant_response = str(assistant_messages[-1].content)
             else:
                 assistant_response = "No response generated. Please try again."
 

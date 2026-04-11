@@ -75,9 +75,16 @@ _ACTIVE_GEMINI_MODEL = _MODEL_CANDIDATES[0]
 _SIGNUP_MARKERS = (
     "i want to sign up",
     "i'd like to sign up",
+    "i would like to sign up",
     "help me sign up",
     "let me sign up",
     "ready to sign up",
+    "i would like to choose the pro plan",
+    "choose the pro plan",
+    "choose pro plan",
+    "select the pro plan",
+    "select pro plan",
+    "go with pro plan",
     "i want to try",
     "want to try",
     "try the pro plan",
@@ -228,6 +235,11 @@ def _extract_string_from_llm_payload(content: Any) -> str:
     return str(content)
 
 
+def _force_gemini_mode() -> bool:
+    """When enabled, bypass local fast-path responses and use Gemini calls."""
+    return os.getenv("AUTOSTREAM_FORCE_GEMINI", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _last_user_text(state: AgentState) -> str:
     for msg in reversed(state.get("messages", [])):
         if getattr(msg, "type", "") == "human":
@@ -327,9 +339,10 @@ def classify_intent(state: AgentState) -> dict:
     if _lead_in_progress(state):
         return {"intent": "signup", "intent_source": "lead_progress"}
 
-    fast_intent = _fast_intent_from_text(_last_user_text(state))
-    if fast_intent:
-        return {"intent": fast_intent, "intent_source": "rule_based"}
+    if not _force_gemini_mode():
+        fast_intent = _fast_intent_from_text(_last_user_text(state))
+        if fast_intent:
+            return {"intent": fast_intent, "intent_source": "rule_based"}
 
     classification_prompt = [
         SystemMessage(
@@ -365,21 +378,22 @@ def respond_info(state: AgentState) -> dict:
     recent_user_message = _last_user_text(state)
     latest_lower = recent_user_message.lower()
 
-    # Fast-path local answers for common FAQ/pricing/policy requests.
-    if any(marker in latest_lower for marker in _INFO_MARKERS):
-        return {"messages": [AIMessage(content=query_knowledge_base(recent_user_message))]}
+    if not _force_gemini_mode():
+        # Fast-path local answers for common FAQ/pricing/policy requests.
+        if any(marker in latest_lower for marker in _INFO_MARKERS):
+            return {"messages": [AIMessage(content=query_knowledge_base(recent_user_message))]}
 
-    if any(marker in latest_lower for marker in _GREETING_MARKERS) and len(latest_lower.split()) <= 12:
-        return {
-            "messages": [
-                AIMessage(
-                    content=(
-                        "Hello! I can help with AutoStream pricing, policies, and getting started. "
-                        "What would you like to know?"
+        if any(marker in latest_lower for marker in _GREETING_MARKERS) and len(latest_lower.split()) <= 12:
+            return {
+                "messages": [
+                    AIMessage(
+                        content=(
+                            "Hello! I can help with AutoStream pricing, policies, and getting started. "
+                            "What would you like to know?"
+                        )
                     )
-                )
-            ]
-        }
+                ]
+            }
 
     messages = [_build_system_message(), *state["messages"]]
     model_response_payload = _invoke_with_model_failover(messages, temperature=0.4)

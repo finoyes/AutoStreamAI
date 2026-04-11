@@ -79,33 +79,44 @@ def query_knowledge_base(query: str) -> str:
     lower_user_query = query.lower()
     knowledge_dictionary = _load_kb()
 
-    # Check for pricing intent
-    if any(word in lower_user_query for word in ("price", "pricing", "cost", "plan", "tier", "basic", "pro", "enterprise")):
-        section = knowledge_dictionary.get("pricing", {})
-        lines = ["Here are the AutoStream pricing plans:\n"]
-        for plan, plan_specifications in section.items():
+    is_pricing_query = any(
+        word in lower_user_query
+        for word in ("price", "pricing", "cost", "plan", "tier", "basic", "pro", "enterprise")
+    )
+    is_policy_query = any(
+        word in lower_user_query for word in ("refund", "cancel", "policy", "policies", "support", "trial", "data")
+    )
+
+    sections: list[str] = []
+
+    if is_pricing_query:
+        pricing_details = knowledge_dictionary.get("pricing", {})
+        pricing_lines = ["Here are the AutoStream pricing plans:\n"]
+        for plan, plan_specifications in pricing_details.items():
             features = ", ".join(plan_specifications.get("features", []))
-            lines.append(
+            pricing_lines.append(
                 f"**{plan}** — {plan_specifications['price']}  |  "
                 f"{plan_specifications.get('limit', '')}  |  "
                 f"{plan_specifications.get('resolution', '')}  |  "
                 f"Features: {features}"
             )
-        return "\n".join(lines)
+        sections.append("\n".join(pricing_lines))
 
-    # Check for policy / refund / cancel intent
-    if any(word in lower_user_query for word in ("refund", "cancel", "policy", "support", "trial", "data")):
-        section = knowledge_dictionary.get("policies", {})
-        lines = ["Relevant AutoStream policies:\n"]
-        for key, policy_description in section.items():
-            if any(w in lower_user_query for w in key.split("_")) or "policy" in lower_user_query:
+    if is_policy_query:
+        policy_details = knowledge_dictionary.get("policies", {})
+        policy_lines = ["Relevant AutoStream policies:\n"]
+        for key, policy_description in policy_details.items():
+            if any(word in lower_user_query for word in key.split("_")) or "policy" in lower_user_query or "policies" in lower_user_query:
                 formatted_policy_title = key.replace("_", " ").title()
-                lines.append(f"**{formatted_policy_title}:** {policy_description}")
-        if len(lines) == 1:  # nothing matched — return all policies
-            for key, policy_description in section.items():
+                policy_lines.append(f"**{formatted_policy_title}:** {policy_description}")
+        if len(policy_lines) == 1:  # nothing matched — return all policies
+            for key, policy_description in policy_details.items():
                 formatted_policy_title = key.replace("_", " ").title()
-                lines.append(f"**{formatted_policy_title}:** {policy_description}")
-        return "\n".join(lines)
+                policy_lines.append(f"**{formatted_policy_title}:** {policy_description}")
+        sections.append("\n".join(policy_lines))
+
+    if sections:
+        return "\n\n".join(sections)
 
     # Default: return everything
     return get_full_context()
