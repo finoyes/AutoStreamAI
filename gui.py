@@ -1,5 +1,10 @@
 """
 AutoStream AI Agent - Desktop GUI.
+Run:
+    python gui.py
+
+This launches a simple chat interface backed by the same LangGraph agent
+used by the CLI entry point.
 
 """
 
