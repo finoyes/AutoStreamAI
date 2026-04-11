@@ -1,9 +1,5 @@
 """
 RAG Engine for the AutoStream AI Agent.
-
-Loads the knowledge base JSON and provides a simple retrieval function
-that matches user queries against known topics (pricing, policies, FAQ).
-No vector DB needed — the dataset is small enough for keyword matching.
 """
 
 import json

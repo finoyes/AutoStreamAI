@@ -1,8 +1,6 @@
 """
 State schema for the AutoStream AI Agent.
 
-Defines the TypedDict used by LangGraph to track conversation state,
-including chat history and lead capture fields.
 """
 
 from typing import Annotated, Optional, Sequence, TypedDict

@@ -1,8 +1,6 @@
 """
 Tool definitions for the AutoStream AI Agent.
 
-Contains the mock_lead_capture tool that simulates writing a lead
-to a CRM or database once all required fields are collected.
 """
 
 from langchain_core.tools import tool

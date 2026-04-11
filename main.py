@@ -1,11 +1,3 @@
-"""
-AutoStream AI Agent — CLI Demo Entry Point.
-
-Run:
-    python main.py
-
-Type 'quit' or 'exit' to end the conversation.
-"""
 
 import sys
 import re

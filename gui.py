@@ -44,6 +44,9 @@ COLORS = {
     "user_text": "#0F172A",
     "chat_bg": "#F9FBFF",
     "border": "#DCE3EE",
+    "chip_bg": "#EFF6FF",
+    "chip_fg": "#1E3A8A",
+    "chip_border": "#BFDBFE",
 }
 
 
@@ -134,12 +137,22 @@ class AutoStreamGUI:
         self._offline_until_ts = 0.0
         self._compact_layout = False
         self._force_gemini_mode = os.getenv("AUTOSTREAM_FORCE_GEMINI", "true").strip().lower() in ("1", "true", "yes", "on")
+        self._last_user_input = ""
+        self._last_assistant_response = ""
+        self._user_turns = 0
 
         self.container: ttk.Frame
         self.header_card: ttk.Frame
         self.header_left: ttk.Frame
         self.header_sub: ttk.Label
         self.input_row: ttk.Frame
+        self.actions_row: ttk.Frame
+        self.quick_row: ttk.Frame
+        self.footer_row: ttk.Frame
+        self.action_buttons: list[ttk.Button]
+        self.quick_buttons: list[ttk.Button]
+        self.turns_var = tk.StringVar(value="Turns: 0")
+        self.hint_var = tk.StringVar(value="Enter to send • Up to recall last message • Ctrl+L new chat • Ctrl+Shift+C copy last reply")
 
         self._configure_styles()
         self._build_ui()
@@ -208,6 +221,41 @@ class AutoStreamGUI:
             foreground=[("disabled", "#E5E7EB")],
         )
 
+        style.configure(
+            "Ghost.TButton",
+            background=COLORS["card_bg"],
+            foreground=COLORS["text"],
+            font=("Segoe UI", 9),
+            padding=(10, 6),
+            bordercolor=COLORS["border"],
+        )
+        style.map(
+            "Ghost.TButton",
+            background=[("active", "#F8FAFC")],
+            foreground=[("active", COLORS["text"])],
+        )
+
+        style.configure(
+            "Quick.TButton",
+            background=COLORS["chip_bg"],
+            foreground=COLORS["chip_fg"],
+            font=("Segoe UI", 9, "bold"),
+            padding=(10, 6),
+            bordercolor=COLORS["chip_border"],
+        )
+        style.map(
+            "Quick.TButton",
+            background=[("active", "#DBEAFE")],
+            foreground=[("active", "#1D4ED8")],
+        )
+
+        style.configure(
+            "Hint.TLabel",
+            background=COLORS["app_bg"],
+            foreground=COLORS["muted"],
+            font=("Segoe UI", 9),
+        )
+
     def _build_ui(self) -> None:
         self.container = ttk.Frame(self.root, padding=14, style="App.TFrame")
         self.container.pack(fill=tk.BOTH, expand=True)
@@ -232,6 +280,41 @@ class AutoStreamGUI:
         self.status_var = tk.StringVar(value="Ready")
         self.status_badge = ttk.Label(self.header_card, textvariable=self.status_var, style="StatusReady.TLabel")
         self.status_badge.pack(side=tk.RIGHT, padx=(10, 0))
+
+        self.actions_row = ttk.Frame(self.container, style="App.TFrame")
+        self.actions_row.pack(fill=tk.X, pady=(0, 8))
+
+        new_chat_button = ttk.Button(
+            self.actions_row,
+            text="New Chat",
+            style="Ghost.TButton",
+            command=self._clear_chat,
+        )
+        copy_button = ttk.Button(
+            self.actions_row,
+            text="Copy Last Reply",
+            style="Ghost.TButton",
+            command=self._copy_last_reply,
+        )
+        self.action_buttons = [new_chat_button, copy_button]
+
+        self.quick_row = ttk.Frame(self.container, style="App.TFrame")
+        self.quick_row.pack(fill=tk.X, pady=(0, 10))
+
+        quick_prompts = [
+            "What plans do you offer?",
+            "What is your refund policy?",
+            "I want to sign up",
+        ]
+        self.quick_buttons = [
+            ttk.Button(
+                self.quick_row,
+                text=prompt,
+                style="Quick.TButton",
+                command=lambda prompt_text=prompt: self._send_quick_prompt(prompt_text),
+            )
+            for prompt in quick_prompts
+        ]
 
         chat_card = ttk.Frame(self.container, style="Card.TFrame", padding=1)
         chat_card.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -268,6 +351,7 @@ class AutoStreamGUI:
         self.user_input = ttk.Entry(self.input_row, font=("Segoe UI", 11), style="Input.TEntry")
         self.user_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.user_input.bind("<Return>", self._on_send)
+        self.user_input.bind("<Up>", self._recall_last_user_input)
 
         self.send_button = ttk.Button(
             self.input_row,
@@ -276,6 +360,20 @@ class AutoStreamGUI:
             command=lambda: self._on_send(None),
         )
         self.send_button.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.footer_row = ttk.Frame(self.container, style="App.TFrame")
+        self.footer_row.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        hint = ttk.Label(self.footer_row, textvariable=self.hint_var, style="Hint.TLabel")
+        hint.pack(side=tk.LEFT)
+        turns = ttk.Label(self.footer_row, textvariable=self.turns_var, style="Hint.TLabel")
+        turns.pack(side=tk.RIGHT)
+
+        self._set_action_layout(compact=False)
+        self._set_quick_layout(compact=False)
+
+        self.root.bind("<Control-l>", self._on_new_chat_shortcut)
+        self.root.bind("<Control-L>", self._on_new_chat_shortcut)
+        self.root.bind("<Control-Shift-C>", self._on_copy_shortcut)
 
     def _set_header_layout(self, compact: bool) -> None:
         self.status_badge.pack_forget()
@@ -294,6 +392,26 @@ class AutoStreamGUI:
             self.user_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
             self.send_button.pack(side=tk.LEFT, padx=(8, 0))
 
+    def _set_action_layout(self, compact: bool) -> None:
+        for button in self.action_buttons:
+            button.pack_forget()
+        if compact:
+            for button in self.action_buttons:
+                button.pack(fill=tk.X, pady=(0, 6))
+        else:
+            for idx, button in enumerate(self.action_buttons):
+                button.pack(side=tk.LEFT, padx=(0, 8 if idx == 0 else 0))
+
+    def _set_quick_layout(self, compact: bool) -> None:
+        for button in self.quick_buttons:
+            button.pack_forget()
+        if compact:
+            for button in self.quick_buttons:
+                button.pack(fill=tk.X, pady=(0, 6))
+        else:
+            for idx, button in enumerate(self.quick_buttons):
+                button.pack(side=tk.LEFT, padx=(0, 8 if idx < len(self.quick_buttons) - 1 else 0))
+
     def _apply_responsive_layout(self) -> None:
         width = self.root.winfo_width()
         compact = width < 760
@@ -302,6 +420,8 @@ class AutoStreamGUI:
             self._compact_layout = compact
             self._set_header_layout(compact)
             self._set_input_layout(compact)
+            self._set_action_layout(compact)
+            self._set_quick_layout(compact)
 
         if compact:
             wraplength = max(260, width - 80)
@@ -315,6 +435,13 @@ class AutoStreamGUI:
 
     def _append_message(self, role: str, text: str) -> None:
         display_text = _sanitize_for_gui(text) if role == "assistant" else text
+        if role == "assistant":
+            self._last_assistant_response = display_text
+        elif role == "user":
+            self._last_user_input = text
+            self._user_turns += 1
+            self.turns_var.set(f"Turns: {self._user_turns}")
+
         timestamp = datetime.now().strftime("%H:%M")
         if role == "user":
             header = f"You  {timestamp}\n"
@@ -377,8 +504,74 @@ class AutoStreamGUI:
         state = tk.NORMAL if enabled else tk.DISABLED
         self.user_input.configure(state=state)
         self.send_button.configure(state=state)
+        for button in self.action_buttons:
+            button.configure(state=state)
+        for button in self.quick_buttons:
+            button.configure(state=state)
         if enabled:
             self.user_input.focus_set()
+
+    def _set_hint(self, message: str) -> None:
+        self.hint_var.set(message)
+        self.root.after(
+            2500,
+            lambda: self.hint_var.set("Enter to send • Up to recall last message • Ctrl+L new chat • Ctrl+Shift+C copy last reply"),
+        )
+
+    def _clear_chat(self) -> None:
+        if self._pending:
+            return
+
+        self.chat.configure(state=tk.NORMAL)
+        self.chat.delete("1.0", tk.END)
+        self.chat.configure(state=tk.DISABLED)
+
+        self.state = {
+            "messages": [],
+            "user_name": None,
+            "user_email": None,
+            "user_platform": None,
+            "lead_captured": False,
+            "intent": None,
+            "intent_source": None,
+        }
+        self._last_assistant_response = ""
+        self._last_user_input = ""
+        self._user_turns = 0
+        self.turns_var.set("Turns: 0")
+
+        self._append_message("assistant", "Welcome to AutoStream AI. Ask me about pricing, policies, or signup.")
+        self._set_hint("Started a fresh chat session.")
+
+    def _copy_last_reply(self) -> None:
+        if not self._last_assistant_response:
+            self._set_hint("No assistant response to copy yet.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self._last_assistant_response)
+        self._set_hint("Copied last assistant reply.")
+
+    def _send_quick_prompt(self, prompt_text: str) -> None:
+        if self._pending:
+            return
+        self.user_input.delete(0, tk.END)
+        self.user_input.insert(0, prompt_text)
+        self._on_send(None)
+
+    def _on_new_chat_shortcut(self, _event) -> str:
+        self._clear_chat()
+        return "break"
+
+    def _on_copy_shortcut(self, _event) -> str:
+        self._copy_last_reply()
+        return "break"
+
+    def _recall_last_user_input(self, _event) -> str:
+        if self._pending or not self._last_user_input:
+            return "break"
+        self.user_input.delete(0, tk.END)
+        self.user_input.insert(0, self._last_user_input)
+        return "break"
 
     def _animate_thinking(self) -> None:
         if not self._pending:
