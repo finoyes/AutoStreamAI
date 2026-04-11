@@ -33,7 +33,7 @@ def get_full_context() -> str:
     knowledge_dictionary = _load_kb()
     sections: list[str] = []
 
-    # --- Pricing ---
+  
     sections.append("## Pricing Plans\n")
     for plan_name, plan_specifications in knowledge_dictionary.get("pricing", {}).items():
         features = ", ".join(plan_specifications.get("features", []))
@@ -44,19 +44,18 @@ def get_full_context() -> str:
             f"  - Features: {features}\n"
         )
 
-    # --- Policies ---
+ 
     sections.append("\n## Policies\n")
     for policy_key, policy_text in knowledge_dictionary.get("policies", {}).items():
         nice_key = policy_key.replace("_", " ").title()
         sections.append(f"**{nice_key}:** {policy_text}\n")
 
-    # --- Supported Platforms ---
+ 
     platforms = knowledge_dictionary.get("platforms_supported", [])
     if platforms:
         sections.append("\n## Supported Creator Platforms\n")
         sections.append(", ".join(platforms) + "\n")
 
-    # --- FAQ ---
     sections.append("\n## Frequently Asked Questions\n")
     for q_key, answer in knowledge_dictionary.get("faq", {}).items():
         nice_q = q_key.replace("_", " ").title()
