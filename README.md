@@ -1,6 +1,6 @@
 # AutoStream AI Agent
 
-An intelligent conversational sales agent built with **LangGraph** and **Google Gemini** for AutoStream — an AI-powered video editing platform for content creators.
+An intelligent conversational sales agent built with **LangGraph** and **Google Gemini** for an AI-powered video editing platform for content creators.
 
 ## What this program Does
 
