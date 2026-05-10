@@ -47,7 +47,7 @@ pip install -r requirements.txt
 Edit `.env` and paste your Google Gemini API key:
 
 ```dotenv
-GEMINI_API_KEY=your_actual_key_here
+GEMINI_API_KEY=your_key_here
 ```
 
 > Get a key at [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey)
